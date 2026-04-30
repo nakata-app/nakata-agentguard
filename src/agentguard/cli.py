@@ -189,6 +189,60 @@ def cmd_audit(args: argparse.Namespace) -> None:
     print(_color(f"Final status: {action.upper()} — {report.reason}", color))
 
 
+def cmd_explain(args: argparse.Namespace) -> None:
+    """One-shot explain: check a tool call and print full diagnostic."""
+    from agentguard import AgentGuard, GuardConfig
+
+    try:
+        tool_args: dict = json.loads(args.args) if args.args else {}
+    except json.JSONDecodeError:
+        tool_args = {"raw": args.args}
+
+    guard = AgentGuard(GuardConfig(
+        halt_on_severity=args.halt_severity,
+        warn_on_severity=args.warn_severity,
+    ))
+    report = guard.record(args.tool, tool_args, output=args.output)
+
+    action = report.action.value
+    color = HALT_COLOR if action == "halt" else WARN_COLOR if action == "warn" else OK_COLOR
+
+    print(f"{'─'*55}")
+    print(_color(f"  agentguard explain", "1"))
+    print(f"{'─'*55}")
+    print(f"  tool:    {args.tool}")
+    print(f"  args:    {args.args or '{}'}")
+    print(f"  action:  {_color(action.upper(), color)}")
+    print(f"  reason:  {report.reason}")
+    print()
+
+    if report.dangers:
+        print(_color("  Danger flags:", HALT_COLOR if any(d.severity >= 9 for d in report.dangers) else WARN_COLOR))
+        for d in report.dangers:
+            sev_color = HALT_COLOR if d.severity >= 9 else WARN_COLOR
+            print(f"    [{_color(str(d.severity), sev_color)}] {d.category.value}: {d.description}")
+            print(f"         matched: …{d.args_snippet}…")
+    else:
+        print(f"  {_color('No danger patterns matched.', OK_COLOR)}")
+
+    if report.loop:
+        print()
+        print(_color(f"  Loop: {report.loop.loop_type.value}", HALT_COLOR))
+        print(f"    {report.loop.description}")
+
+    if report.output_flags:
+        print()
+        print(_color("  Output issues:", WARN_COLOR))
+        for f in report.output_flags:
+            print(f"    [{f.severity}] {f.issue.value}: {f.description}")
+
+    if report.allowlist_match:
+        print()
+        print(_color(f"  Allowlisted: {report.allowlist_match}", OK_COLOR))
+
+    print(f"{'─'*55}")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -221,6 +275,14 @@ def main() -> None:
     p_audit = sub.add_parser("audit", help="analyse a saved session snapshot")
     p_audit.add_argument("file", help="path to session JSON snapshot")
 
+    # explain
+    p_explain = sub.add_parser("explain", help="explain why a tool call is flagged")
+    p_explain.add_argument("tool", help="tool name (e.g. bash)")
+    p_explain.add_argument("args", nargs="?", default="{}", help="JSON args string")
+    p_explain.add_argument("--output", default=None, help="tool output string")
+    p_explain.add_argument("--halt-severity", type=int, default=9)
+    p_explain.add_argument("--warn-severity", type=int, default=6)
+
     args = parser.parse_args()
     {
         "serve": cmd_serve,
@@ -228,4 +290,5 @@ def main() -> None:
         "status": cmd_status,
         "reset": cmd_reset,
         "audit": cmd_audit,
+        "explain": cmd_explain,
     }.get(args.command or "", lambda _: (parser.print_help(), sys.exit(1)))(args)

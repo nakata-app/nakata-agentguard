@@ -141,6 +141,7 @@ class AgentReport:
     total_calls: int
     reason: str
     output_flags: list = field(default_factory=list)   # list[OutputFlag]
+    rate_flag: Any = None                               # RateFlag | None
     allowlist_match: str | None = None
 
     def to_dict(self) -> dict[str, Any]:

@@ -25,7 +25,7 @@ class TestLoopDetection:
         assert reports[-1].loop is not None
 
     def test_loop_disabled_no_halt(self):
-        guard = AgentGuard(GuardConfig(exact_threshold=3, halt_on_loop=False))
+        guard = AgentGuard(GuardConfig(exact_threshold=3, halt_on_loop=False, rate_halt_cps=9999, rate_warn_cps=9999))
         reports = [guard.record("bash", {"cmd": "ls"}) for _ in range(5)]
         assert all(r.action == Action.CONTINUE for r in reports)
 

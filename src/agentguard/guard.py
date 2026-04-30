@@ -9,6 +9,7 @@ from typing import Any
 from agentguard.allowlist import Allowlist
 from agentguard.detectors import BudgetMonitor, DangerDetector, LoopDetector
 from agentguard.detectors.output import OutputFlag, OutputMonitor
+from agentguard.detectors.rate import RateMonitor
 from agentguard.models import Action, AgentReport, SessionStats, ToolCall
 
 
@@ -44,6 +45,13 @@ class GuardConfig:
     halt_on_output_size: bool = True
     # ── Allowlist ──────────────────────────────────────────────────────────
     allowlist: Allowlist = field(default_factory=Allowlist)
+    # ── Rate monitor ───────────────────────────────────────────────────────
+    rate_window_seconds: float = 5.0
+    rate_warn_cps: float = 10.0
+    rate_halt_cps: float = 25.0
+    halt_on_rate: bool = True
+    # ── Custom rules ───────────────────────────────────────────────────────
+    rules_file: str | None = None   # path to .toml or .json rules file
 
 
 class AgentGuard:
@@ -66,6 +74,15 @@ class AgentGuard:
         self._output_events: int = 0
         self._session_start: float = time.time()
         self._danger_cache: dict[str, list] = {}   # call_key → flags
+        # Load custom rules file if specified
+        _extra_patterns = None
+        if self.config.rules_file:
+            from agentguard.rules import load_rules_file
+            loaded = load_rules_file(self.config.rules_file)
+            _extra_patterns = loaded["patterns"] or None
+            # Merge allowlist from rules file
+            for entry in loaded["allowlist"]._entries:
+                self.config.allowlist._entries.append(entry)
         self._loop = LoopDetector(
             exact_window=self.config.exact_window,
             exact_threshold=self.config.exact_threshold,
@@ -78,10 +95,18 @@ class AgentGuard:
             stall_window=self.config.stall_window,
             stall_threshold=self.config.stall_threshold,
         )
-        self._danger = DangerDetector(min_severity=self.config.danger_min_severity)
+        self._danger = DangerDetector(
+            min_severity=self.config.danger_min_severity,
+            extra_patterns=_extra_patterns,
+        )
         self._budget = BudgetMonitor(
             token_limit=self.config.token_limit,
             cost_limit_usd=self.config.cost_limit_usd,
+        )
+        self._rate = RateMonitor(
+            window_seconds=self.config.rate_window_seconds,
+            warn_cps=self.config.rate_warn_cps,
+            halt_cps=self.config.rate_halt_cps,
         )
         self._output_monitor = OutputMonitor(
             max_bytes=self.config.output_max_bytes,
@@ -117,6 +142,7 @@ class AgentGuard:
         loop_info = self._loop.check(self._calls)
         budget = self._budget.status()
         output_flags = self._output_monitor.check(latest.output)
+        rate_flag = self._rate.check(self._calls)
 
         # Danger check — skip if allowlisted
         if self.config.allowlist.is_allowed(latest.tool, latest.args):
@@ -172,6 +198,15 @@ class AgentGuard:
                 action = Action.WARN
                 reasons.append(f"output warning: {output_flags[0].description}")
 
+        # Rate limit
+        if rate_flag:
+            if rate_flag.severity >= 8 and self.config.halt_on_rate:
+                action = Action.HALT
+                reasons.append(f"rate limit: {rate_flag.description}")
+            elif rate_flag.severity >= 5 and action == Action.CONTINUE:
+                action = Action.WARN
+                reasons.append(f"rate warning: {rate_flag.description}")
+
         # Budget warning
         if budget.is_warning and action == Action.CONTINUE:
             action = Action.WARN
@@ -183,6 +218,7 @@ class AgentGuard:
             loop=loop_info,
             dangers=dangers,
             output_flags=output_flags,
+            rate_flag=rate_flag,
             budget=budget,
             total_calls=len(self._calls),
             reason="; ".join(reasons) if reasons else "ok",
@@ -197,6 +233,7 @@ class AgentGuard:
                 loop=None,
                 dangers=[],
                 output_flags=[],
+                rate_flag=None,
                 budget=budget,
                 total_calls=0,
                 reason="no calls recorded",

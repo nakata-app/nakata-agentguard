@@ -1,0 +1,12 @@
+# Add to your ~/.metis/hooks.toml or project-level hooks.toml
+# Starts agentguard daemon before session, hooks it into every tool call.
+
+[[hooks]]
+event   = "SessionStart"
+command = "agentguard serve --port 7420 --halt-severity 9 --warn-severity 6"
+background = true
+
+[[hooks]]
+event   = "PostToolUse"
+command = "agentguard check"
+# Exit 1 from agentguard check → Metis blocks the turn

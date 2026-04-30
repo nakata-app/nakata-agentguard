@@ -9,7 +9,6 @@ if TYPE_CHECKING:
 
 from agentguard.models import LoopInfo, LoopType
 
-
 # ---------------------------------------------------------------------------
 # Normalisation helpers
 # ---------------------------------------------------------------------------
@@ -27,7 +26,6 @@ def _normalise_arg(value: str) -> str:
 
 def _near_key(call) -> str:  # type: ignore[no-untyped-def]
     """Normalised call key for near-duplicate matching."""
-    from agentguard.models import ToolCall
     parts = [call.tool]
     for v in call.args.values():
         if isinstance(v, str):

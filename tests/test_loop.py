@@ -1,4 +1,3 @@
-import pytest
 from agentguard.detectors.loop import LoopDetector
 from agentguard.models import LoopType, ToolCall
 

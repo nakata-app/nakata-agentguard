@@ -1,6 +1,7 @@
 """Tests for danger patterns added in v0.3.0."""
 import pytest
-from agentguard import AgentGuard, GuardConfig, Action
+
+from agentguard import Action, AgentGuard, GuardConfig
 
 
 @pytest.fixture

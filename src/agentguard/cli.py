@@ -16,7 +16,6 @@ import os
 import sys
 from typing import Any
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _post_to_daemon(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
@@ -183,7 +182,7 @@ def cmd_audit(args: argparse.Namespace) -> None:
     print(f"Total cost:     ${s.total_cost_usd:.4f}")
     print(f"Duration:       {s.duration_seconds:.1f}s")
     print()
-    print(f"Tool frequency:")
+    print("Tool frequency:")
     for tool, count in sorted(s.tool_frequency.items(), key=lambda x: -x[1]):
         print(f"  {tool:20} {count}")
     print()
@@ -238,7 +237,8 @@ halt_cps       = 25.0       # calls/sec halt threshold
 
 def cmd_hooks(args: argparse.Namespace) -> None:
     """Generate Claude Code hooks configuration for PreToolUse/PostToolUse."""
-    import pathlib, shutil
+    import pathlib
+    import shutil
 
     install = args.install
     hook_cmd = args.cmd or "agentguard check"
@@ -305,7 +305,7 @@ def cmd_explain(args: argparse.Namespace) -> None:
     color = HALT_COLOR if action == "halt" else WARN_COLOR if action == "warn" else OK_COLOR
 
     print(f"{'─'*55}")
-    print(_color(f"  agentguard explain", "1"))
+    print(_color("  agentguard explain", "1"))
     print(f"{'─'*55}")
     print(f"  tool:    {args.tool}")
     print(f"  args:    {args.args or '{}'}")

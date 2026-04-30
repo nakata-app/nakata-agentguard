@@ -2,10 +2,6 @@
 import json
 import subprocess
 import sys
-import tempfile
-import pathlib
-
-import pytest
 
 
 def _run(*args):
@@ -61,7 +57,7 @@ class TestHooks:
 
     def test_hooks_install(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
-        r = _run("hooks", "--install")
+        _run("hooks", "--install")
         hooks_file = tmp_path / ".claude" / "hooks.json"
         assert hooks_file.exists()
         data = json.loads(hooks_file.read_text())

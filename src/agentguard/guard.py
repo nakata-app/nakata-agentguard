@@ -8,7 +8,7 @@ from typing import Any
 
 from agentguard.allowlist import Allowlist
 from agentguard.detectors import BudgetMonitor, DangerDetector, LoopDetector
-from agentguard.detectors.output import OutputFlag, OutputMonitor
+from agentguard.detectors.output import OutputMonitor
 from agentguard.detectors.rate import RateMonitor
 from agentguard.models import Action, AgentReport, SessionStats, ToolCall
 
@@ -52,6 +52,43 @@ class GuardConfig:
     halt_on_rate: bool = True
     # ── Custom rules ───────────────────────────────────────────────────────
     rules_file: str | None = None   # path to .toml or .json rules file
+
+    @classmethod
+    def from_file(cls, path: str) -> "GuardConfig":
+        """Load a GuardConfig from an agentguard.toml / .json rules file.
+
+        The [guard] and [rate] sections map directly to GuardConfig fields.
+        [[patterns]] and [[allowlist]] are also loaded.
+        """
+        from agentguard.rules import load_rules_file
+        loaded = load_rules_file(path)
+        raw = loaded.get("raw", {})
+
+        guard_section = raw.get("guard", {})
+        rate_section = raw.get("rate", {})
+
+        kwargs: dict[str, Any] = {"rules_file": path}
+        field_map = {
+            "halt_on_severity": int, "warn_on_severity": int,
+            "halt_on_loop": bool, "exact_threshold": int, "stall_threshold": int,
+            "exact_window": int, "near_dup_window": int, "near_dup_threshold": int,
+            "error_loop_window": int, "error_loop_threshold": int,
+            "pattern_min_period": int, "pattern_min_repeats": int,
+            "token_limit": int, "cost_limit_usd": float,
+            "output_max_bytes": int, "output_warn_bytes": int,
+            "halt_on_output_size": bool, "halt_on_rate": bool,
+        }
+        for key, cast in field_map.items():
+            section = rate_section if key in ("rate_window_seconds", "rate_warn_cps", "rate_halt_cps") else guard_section
+            if key in section:
+                kwargs[key] = cast(section[key])
+        for key in ("rate_window_seconds", "rate_warn_cps", "rate_halt_cps"):
+            if key.removeprefix("rate_") in rate_section:
+                kwargs[key] = float(rate_section[key.removeprefix("rate_")])
+
+        cfg = cls(**kwargs)
+        cfg.allowlist = loaded["allowlist"]
+        return cfg
 
 
 class AgentGuard:

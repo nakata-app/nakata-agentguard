@@ -1,5 +1,4 @@
 """Tests for near-duplicate and error-loop detection."""
-import pytest
 from agentguard.detectors.loop import LoopDetector
 from agentguard.models import LoopType, ToolCall
 

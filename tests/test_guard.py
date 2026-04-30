@@ -1,4 +1,3 @@
-import pytest
 from agentguard import Action, AgentGuard, GuardConfig
 
 

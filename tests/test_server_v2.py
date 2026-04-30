@@ -7,11 +7,10 @@ try:
 except ImportError:
     _AVAILABLE = False
 
+from agentguard.guard import GuardConfig  # noqa: E402
+from agentguard.server import create_app  # noqa: E402
+
 pytestmark = pytest.mark.skipif(not _AVAILABLE, reason="FastAPI not installed")
-
-
-from agentguard.server import create_app
-from agentguard.guard import GuardConfig
 
 
 @pytest.fixture
@@ -53,9 +52,9 @@ class TestWebhookFiring:
 
     def test_webhook_fires_on_halt(self, tmp_path):
         """Use a local HTTP server to verify webhook receives payload."""
-        import threading
         import http.server
         import json as _json
+        import threading
 
         received = []
 

@@ -1,4 +1,3 @@
-import pytest
 from agentguard.detectors.danger import DangerDetector
 from agentguard.models import DangerCategory
 

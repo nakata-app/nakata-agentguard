@@ -88,7 +88,7 @@ def load_rules_file(path: str | Path) -> dict[str, Any]:
     else:
         raise ValueError(f"Unsupported rules file format: {suffix} (use .toml or .json)")
 
-    patterns = _parse_rules(data.get("rules", []))
+    patterns = _parse_rules(data.get("patterns", data.get("rules", [])))
     allowlist = _parse_allowlist(data.get("allowlist", []))
 
-    return {"patterns": patterns, "allowlist": allowlist}
+    return {"patterns": patterns, "allowlist": allowlist, "raw": data}

@@ -1,7 +1,6 @@
 """Tests for output monitor and allowlist."""
-import pytest
-from agentguard import AgentGuard, Allowlist, GuardConfig, Action
-from agentguard.detectors.output import OutputMonitor, OutputIssue
+from agentguard import Action, AgentGuard, Allowlist, GuardConfig
+from agentguard.detectors.output import OutputIssue, OutputMonitor
 
 
 class TestOutputMonitor:
@@ -105,7 +104,7 @@ class TestAllowlist:
     def test_allowlist_no_tool_matches_all(self):
         al = Allowlist()
         al.add(pattern=r"rm -rf /tmp/", tool=None)  # any tool
-        guard = AgentGuard(GuardConfig(allowlist=al))
+        AgentGuard(GuardConfig(allowlist=al))
         for tool in ("bash", "shell", "exec"):
             g = AgentGuard(GuardConfig(allowlist=al))
             r = g.record(tool, {"cmd": "rm -rf /tmp/test"})

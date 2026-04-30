@@ -16,15 +16,14 @@ import urllib.request
 from typing import Any
 
 try:
+    import uvicorn
     from fastapi import FastAPI, Query
     from pydantic import BaseModel
-    import uvicorn
     _FASTAPI_AVAILABLE = True
 except ImportError:
     _FASTAPI_AVAILABLE = False
 
 from agentguard.guard import AgentGuard, GuardConfig
-
 
 # ── Session registry ────────────────────────────────────────────────────────
 

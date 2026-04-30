@@ -3,8 +3,9 @@ import pytest
 
 try:
     from fastapi.testclient import TestClient
-    from agentguard.server import create_app
+
     from agentguard.guard import GuardConfig
+    from agentguard.server import create_app
     _AVAILABLE = True
 except ImportError:
     _AVAILABLE = False

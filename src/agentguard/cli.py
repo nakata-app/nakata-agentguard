@@ -70,8 +70,11 @@ def cmd_serve(args: argparse.Namespace) -> None:
         exact_threshold=args.exact_threshold,
         stall_threshold=args.stall_threshold,
     )
+    webhook = getattr(args, "webhook_url", None)
     print(f"[agentguard] daemon starting on {args.host}:{args.port}", flush=True)
-    serve(host=args.host, port=args.port, config=config)
+    if webhook:
+        print(f"[agentguard] webhook → {webhook}", flush=True)
+    serve(host=args.host, port=args.port, config=config, webhook_url=webhook)
 
 
 def cmd_check(args: argparse.Namespace) -> None:
@@ -189,6 +192,100 @@ def cmd_audit(args: argparse.Namespace) -> None:
     print(_color(f"Final status: {action.upper()} — {report.reason}", color))
 
 
+def cmd_init(args: argparse.Namespace) -> None:
+    """Generate a starter agentguard.toml in the current directory."""
+    import pathlib
+    dest = pathlib.Path(args.output)
+    if dest.exists() and not args.force:
+        print(f"[agentguard] {dest} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+    template = '''\
+# agentguard configuration
+# Reference: https://github.com/nakata-app/nakata-agentguard
+
+[guard]
+halt_on_severity  = 9       # danger severity >= this → halt
+warn_on_severity  = 6       # danger severity >= this → warn
+halt_on_loop      = true    # halt when loop detected
+exact_threshold   = 3       # same call N times → exact loop
+stall_threshold   = 5       # same tool N times (any args) → stall
+# token_limit     = 100000  # halt when cumulative tokens exceed
+# cost_limit_usd  = 5.00    # halt when cumulative cost exceeds
+
+[rate]
+window_seconds = 5.0        # sliding window for rate limiting
+warn_cps       = 10.0       # calls/sec warn threshold
+halt_cps       = 25.0       # calls/sec halt threshold
+
+# Custom danger patterns (extend built-in rules)
+# [[patterns]]
+# pattern     = "my_secret_function"
+# category    = "secrets"   # destructive|exfiltration|privilege_escalation|
+#                           # code_injection|data_wipe|network|secrets
+# severity    = 8
+# description = "internal secret function"
+
+# Allowlist — skip danger checks for matching calls
+# [[allowlist]]
+# tool    = "bash"
+# pattern = "ls\\s+-la"      # regex matched against all arg values
+# reason  = "read-only directory listing"
+'''
+    dest.write_text(template, encoding="utf-8")
+    print(f"[agentguard] created {dest}")
+    print("Edit it, then pass --rules-file to serve/check, or load via GuardConfig(rules_file=...)")
+
+
+def cmd_hooks(args: argparse.Namespace) -> None:
+    """Generate Claude Code hooks configuration for PreToolUse/PostToolUse."""
+    import pathlib, shutil
+
+    install = args.install
+    hook_cmd = args.cmd or "agentguard check"
+
+    hooks_config = {
+        "hooks": [
+            {
+                "event": "PreToolUse",
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": hook_cmd,
+                    }
+                ],
+            },
+            {
+                "event": "PostToolUse",
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": hook_cmd,
+                    }
+                ],
+            },
+        ]
+    }
+
+    output = json.dumps(hooks_config, indent=2)
+
+    if install:
+        # Claude Code settings dir
+        settings_dir = pathlib.Path.home() / ".claude"
+        settings_dir.mkdir(exist_ok=True)
+        dest = settings_dir / "hooks.json"
+        if dest.exists():
+            backup = dest.with_suffix(".json.bak")
+            shutil.copy2(dest, backup)
+            print(f"[agentguard] backed up existing hooks → {backup}")
+        dest.write_text(output, encoding="utf-8")
+        print(f"[agentguard] hooks installed → {dest}")
+        print("Restart Claude Code for hooks to take effect.")
+    else:
+        print(output)
+
+
 def cmd_explain(args: argparse.Namespace) -> None:
     """One-shot explain: check a tool call and print full diagnostic."""
     from agentguard import AgentGuard, GuardConfig
@@ -259,6 +356,7 @@ def main() -> None:
     p_serve.add_argument("--cost-limit", type=float, default=None)
     p_serve.add_argument("--exact-threshold", type=int, default=3)
     p_serve.add_argument("--stall-threshold", type=int, default=5)
+    p_serve.add_argument("--webhook-url", default=None, help="POST halt/warn events here")
 
     # check (Metis hook mode)
     p_check = sub.add_parser("check", help="one-shot check from Metis env vars")
@@ -283,6 +381,16 @@ def main() -> None:
     p_explain.add_argument("--halt-severity", type=int, default=9)
     p_explain.add_argument("--warn-severity", type=int, default=6)
 
+    # init
+    p_init = sub.add_parser("init", help="generate starter agentguard.toml")
+    p_init.add_argument("--output", default="agentguard.toml", help="output file path")
+    p_init.add_argument("--force", action="store_true", help="overwrite existing file")
+
+    # hooks
+    p_hooks = sub.add_parser("hooks", help="generate Claude Code hooks configuration")
+    p_hooks.add_argument("--install", action="store_true", help="write to ~/.claude/hooks.json")
+    p_hooks.add_argument("--cmd", default=None, help="hook command (default: agentguard check)")
+
     args = parser.parse_args()
     {
         "serve": cmd_serve,
@@ -291,4 +399,6 @@ def main() -> None:
         "reset": cmd_reset,
         "audit": cmd_audit,
         "explain": cmd_explain,
+        "init": cmd_init,
+        "hooks": cmd_hooks,
     }.get(args.command or "", lambda _: (parser.print_help(), sys.exit(1)))(args)

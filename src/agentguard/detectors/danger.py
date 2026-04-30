@@ -128,7 +128,7 @@ _PATTERNS: list[tuple[str, DangerCategory, int, str]] = [
     (r"\baws\s+ec2\s+terminate-instances\b", DangerCategory.DESTRUCTIVE, 9, "AWS EC2 terminate instances"),
     (r"\baws\s+rds\s+delete-db-instance\b", DangerCategory.DESTRUCTIVE, 9, "AWS RDS delete DB instance"),
     (r"\baws\s+iam\s+delete-(user|role|group|policy)\b", DangerCategory.DESTRUCTIVE, 8, "AWS IAM identity deletion"),
-    (r"\bgcloud\s+(projects|compute|sql|container)\s+delete\b", DangerCategory.DESTRUCTIVE, 9, "GCloud resource deletion"),
+    (r"\bgcloud\b.*(projects|compute|sql|container|functions|run)\b.*\bdelete\b", DangerCategory.DESTRUCTIVE, 9, "GCloud resource deletion"),
     (r"\bterraform\s+destroy\b",         DangerCategory.DESTRUCTIVE, 9, "terraform destroy infrastructure"),
     (r"\bpulumi\s+destroy\b",            DangerCategory.DESTRUCTIVE, 9, "pulumi destroy infrastructure"),
     (r"\baz\s+(group|vm|disk|storage|sql)\s+delete\b", DangerCategory.DESTRUCTIVE, 9, "Azure resource deletion"),

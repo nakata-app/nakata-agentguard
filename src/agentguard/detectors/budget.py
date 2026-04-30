@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from agentguard.models import BudgetStatus, ToolCall
+from agentguard.models import BudgetStatus
 
 
 class BudgetMonitor:
+    """Tracks token and cost totals with O(1) per-call update."""
+
     def __init__(
         self,
         token_limit: int | None = None,
@@ -11,19 +13,31 @@ class BudgetMonitor:
     ) -> None:
         self.token_limit = token_limit
         self.cost_limit_usd = cost_limit_usd
+        self._total_tokens: int = 0
+        self._total_cost: float = 0.0
 
-    def status(self, calls: list[ToolCall]) -> BudgetStatus:
-        total_tokens = sum(c.tokens for c in calls)
-        total_cost = sum(c.cost_usd for c in calls)
+    def add(self, tokens: int, cost_usd: float) -> None:
+        self._total_tokens += tokens
+        self._total_cost += cost_usd
 
-        token_pct = (total_tokens / self.token_limit) if self.token_limit else None
-        cost_pct = (total_cost / self.cost_limit_usd) if self.cost_limit_usd else None
-
+    def status(self) -> BudgetStatus:
+        token_pct = (
+            self._total_tokens / self.token_limit
+            if self.token_limit else None
+        )
+        cost_pct = (
+            self._total_cost / self.cost_limit_usd
+            if self.cost_limit_usd else None
+        )
         return BudgetStatus(
-            total_tokens=total_tokens,
-            total_cost_usd=total_cost,
+            total_tokens=self._total_tokens,
+            total_cost_usd=self._total_cost,
             token_limit=self.token_limit,
             cost_limit_usd=self.cost_limit_usd,
             token_pct=token_pct,
             cost_pct=cost_pct,
         )
+
+    def reset(self) -> None:
+        self._total_tokens = 0
+        self._total_cost = 0.0

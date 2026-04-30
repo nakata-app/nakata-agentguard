@@ -2,9 +2,10 @@
 CLI entry points:
 
   agentguard serve      start the FastAPI daemon
-  agentguard check      one-shot check (reads from env vars, prints action)
+  agentguard check      one-shot check (reads from Metis env vars)
   agentguard status     query a running daemon
   agentguard reset      reset session on a running daemon
+  agentguard audit <file>  analyse a saved session snapshot
 """
 
 from __future__ import annotations
@@ -13,7 +14,49 @@ import argparse
 import json
 import os
 import sys
+from typing import Any
 
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _post_to_daemon(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
+    import urllib.request
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
+
+def _get_from_daemon(url: str, timeout: float = 2.0) -> dict[str, Any] | None:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
+
+def _color(text: str, code: str) -> str:
+    """ANSI colour if stdout is a tty."""
+    if sys.stderr.isatty():
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
+
+HALT_COLOR = "31;1"   # bold red
+WARN_COLOR = "33;1"   # bold yellow
+OK_COLOR   = "32"     # green
+
+
+# ── Commands ───────────────────────────────────────────────────────────────
 
 def cmd_serve(args: argparse.Namespace) -> None:
     from agentguard.guard import GuardConfig
@@ -33,82 +76,120 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 def cmd_check(args: argparse.Namespace) -> None:
     """
-    One-shot check — reads METIS_TOOL_NAME + METIS_TOOL_ARGS from env.
-    Exits 0 = continue, 1 = warn, 2 = halt.
-    Designed to be used directly as a Metis hook command.
+    One-shot check — reads Metis env vars.
+
+    PreToolUse:  METIS_TOOL_NAME + METIS_TOOL_ARGS
+    PostToolUse: METIS_TOOL_NAME + METIS_TOOL_RESULT
+
+    Exit codes:
+      0  → continue
+      1  → warn (printed to stderr, Metis blocks if configured)
+      2  → halt (Metis blocks the turn)
     """
     tool = os.environ.get("METIS_TOOL_NAME", "")
-    raw_args = os.environ.get("METIS_TOOL_ARGS", "{}")
     if not tool:
-        print("[agentguard] METIS_TOOL_NAME not set, skipping", file=sys.stderr)
         sys.exit(0)
 
+    raw_args = os.environ.get("METIS_TOOL_ARGS", "")
+    raw_result = os.environ.get("METIS_TOOL_RESULT", "")
+
     try:
-        parsed_args = json.loads(raw_args)
+        parsed_args: dict[str, Any] = json.loads(raw_args) if raw_args else {}
     except json.JSONDecodeError:
         parsed_args = {"raw": raw_args}
 
-    # Try to hit the daemon first; fall back to in-process
     daemon_url = os.environ.get("AGENTGUARD_URL", "http://127.0.0.1:7420")
-    try:
-        import urllib.request
-        payload = json.dumps({"tool": tool, "args": parsed_args}).encode()
-        req = urllib.request.Request(
-            f"{daemon_url}/record",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            result = json.loads(resp.read())
-        action = result.get("action", "continue")
-        reason = result.get("reason", "")
-    except Exception:
-        # Daemon not running — in-process check (no session history)
+    result = _post_to_daemon(
+        f"{daemon_url}/record",
+        {
+            "tool": tool,
+            "args": parsed_args,
+            "output": raw_result or None,
+        },
+    )
+
+    if result is None:
+        # Daemon not running — stateless in-process check
         from agentguard.guard import AgentGuard, GuardConfig
-        config = GuardConfig(
+        guard = AgentGuard(GuardConfig(
             halt_on_severity=args.halt_severity,
             warn_on_severity=args.warn_severity,
-        )
-        guard = AgentGuard(config)
-        report = guard.record(tool, parsed_args)
+        ))
+        report = guard.record(tool, parsed_args, output=raw_result or None)
         action = report.action.value
         reason = report.reason
+    else:
+        action = result.get("action", "continue")
+        reason = result.get("reason", "")
 
     if action == "halt":
-        print(f"[agentguard] HALT: {reason}", file=sys.stderr)
+        print(_color(f"[agentguard] HALT: {reason}", HALT_COLOR), file=sys.stderr)
         sys.exit(2)
     elif action == "warn":
-        print(f"[agentguard] WARN: {reason}", file=sys.stderr)
+        print(_color(f"[agentguard] WARN: {reason}", WARN_COLOR), file=sys.stderr)
         sys.exit(1)
     else:
         sys.exit(0)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    import urllib.request
-    url = f"http://{args.host}:{args.port}/status"
-    try:
-        with urllib.request.urlopen(url, timeout=3) as resp:
-            data = json.loads(resp.read())
-        print(json.dumps(data, indent=2))
-    except Exception as e:
-        print(f"[agentguard] could not reach daemon: {e}", file=sys.stderr)
+    result = _get_from_daemon(f"http://{args.host}:{args.port}/status")
+    if result is None:
+        print(_color("[agentguard] daemon not reachable", HALT_COLOR), file=sys.stderr)
         sys.exit(1)
+    action = result.get("action", "continue")
+    color = HALT_COLOR if action == "halt" else WARN_COLOR if action == "warn" else OK_COLOR
+    print(_color(f"action: {action}", color))
+    print(f"reason: {result.get('reason', '')}")
+    print(f"calls:  {result.get('total_calls', 0)}")
+    print(f"loops:  {result.get('loop_detected', False)}")
+    print(f"dangers: {result.get('danger_count', 0)}")
+    print(f"budget_exceeded: {result.get('budget_exceeded', False)}")
 
 
 def cmd_reset(args: argparse.Namespace) -> None:
-    import urllib.request
-    url = f"http://{args.host}:{args.port}/reset"
-    req = urllib.request.Request(url, data=b"{}", method="POST",
-                                  headers={"Content-Type": "application/json"})
+    result = _post_to_daemon(f"http://{args.host}:{args.port}/reset", {})
+    if result is None:
+        print(_color("[agentguard] reset failed — daemon not reachable", HALT_COLOR), file=sys.stderr)
+        sys.exit(1)
+    print("[agentguard] session reset")
+
+
+def cmd_audit(args: argparse.Namespace) -> None:
+    """Analyse a saved session snapshot and print a report."""
+    from agentguard import AgentGuard
+
     try:
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            print(json.loads(resp.read()))
-    except Exception as e:
-        print(f"[agentguard] reset failed: {e}", file=sys.stderr)
+        guard = AgentGuard.load(args.file)
+    except FileNotFoundError:
+        print(f"[agentguard] file not found: {args.file}", file=sys.stderr)
         sys.exit(1)
 
+    s = guard.stats()
+    report = guard.report()
+
+    print(f"{'─'*50}")
+    print(f"agentguard session audit: {args.file}")
+    print(f"{'─'*50}")
+    print(f"Total calls:    {s.total_calls}")
+    print(f"Unique tools:   {', '.join(s.unique_tools)}")
+    print(f"Error count:    {s.error_count}  ({s.error_rate:.1%})")
+    print(f"Loop events:    {s.loop_events}")
+    print(f"Danger events:  {s.danger_events}")
+    print(f"Total tokens:   {s.total_tokens}")
+    print(f"Total cost:     ${s.total_cost_usd:.4f}")
+    print(f"Duration:       {s.duration_seconds:.1f}s")
+    print()
+    print(f"Tool frequency:")
+    for tool, count in sorted(s.tool_frequency.items(), key=lambda x: -x[1]):
+        print(f"  {tool:20} {count}")
+    print()
+    action = report.action.value
+    color = HALT_COLOR if action == "halt" else WARN_COLOR if action == "warn" else OK_COLOR
+    print(_color(f"Final status: {action.upper()} — {report.reason}", color))
+
+
+# ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="agentguard", description="Agent safety monitor")
@@ -125,8 +206,8 @@ def main() -> None:
     p_serve.add_argument("--exact-threshold", type=int, default=3)
     p_serve.add_argument("--stall-threshold", type=int, default=5)
 
-    # check (hook mode)
-    p_check = sub.add_parser("check", help="one-shot check from env vars (Metis hook)")
+    # check (Metis hook mode)
+    p_check = sub.add_parser("check", help="one-shot check from Metis env vars")
     p_check.add_argument("--halt-severity", type=int, default=9)
     p_check.add_argument("--warn-severity", type=int, default=6)
 
@@ -136,15 +217,15 @@ def main() -> None:
         p.add_argument("--host", default="127.0.0.1")
         p.add_argument("--port", type=int, default=7420)
 
+    # audit
+    p_audit = sub.add_parser("audit", help="analyse a saved session snapshot")
+    p_audit.add_argument("file", help="path to session JSON snapshot")
+
     args = parser.parse_args()
-    if args.command == "serve":
-        cmd_serve(args)
-    elif args.command == "check":
-        cmd_check(args)
-    elif args.command == "status":
-        cmd_status(args)
-    elif args.command == "reset":
-        cmd_reset(args)
-    else:
-        parser.print_help()
-        sys.exit(1)
+    {
+        "serve": cmd_serve,
+        "check": cmd_check,
+        "status": cmd_status,
+        "reset": cmd_reset,
+        "audit": cmd_audit,
+    }.get(args.command or "", lambda _: (parser.print_help(), sys.exit(1)))(args)

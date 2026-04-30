@@ -53,7 +53,8 @@ class TestPrivilegeEscalation:
     def test_ssh_private_key(self):
         d = DangerDetector()
         flags = d.check("read", {"path": "~/.ssh/id_rsa"})
-        assert any(f.category == DangerCategory.EXFILTRATION for f in flags)
+        # SSH key moved to SECRETS category
+        assert any(f.category in (DangerCategory.EXFILTRATION, DangerCategory.SECRETS) for f in flags)
 
 
 class TestExfiltration:

@@ -1,5 +1,5 @@
 """
-nakata-agentguard: lightweight agentic loop & safety monitor.
+nakata-agentguard: lightweight agentic loop detector and safety monitor.
 
 Quick start::
 
@@ -11,6 +11,7 @@ Quick start::
         raise RuntimeError(report.reason)
 """
 
+from agentguard.allowlist import Allowlist
 from agentguard.guard import AgentGuard, GuardConfig
 from agentguard.models import (
     Action,
@@ -20,13 +21,15 @@ from agentguard.models import (
     DangerFlag,
     LoopInfo,
     LoopType,
+    SessionStats,
     ToolCall,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "AgentGuard",
     "GuardConfig",
+    "Allowlist",
     "Action",
     "AgentReport",
     "BudgetStatus",
@@ -34,5 +37,6 @@ __all__ = [
     "DangerFlag",
     "LoopInfo",
     "LoopType",
+    "SessionStats",
     "ToolCall",
 ]

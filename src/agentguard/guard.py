@@ -54,7 +54,7 @@ class GuardConfig:
     rules_file: str | None = None   # path to .toml or .json rules file
 
     @classmethod
-    def from_file(cls, path: str) -> "GuardConfig":
+    def from_file(cls, path: str) -> GuardConfig:
         """Load a GuardConfig from an agentguard.toml / .json rules file.
 
         The [guard] and [rate] sections map directly to GuardConfig fields.
